@@ -2115,7 +2115,7 @@ def get_keepalive_status(_=Depends(auth)):
 
 
 # ------------------------- 仓库实时更新检测、通知与一键在线升级 -------------------------
-REPO_URL = "https://github.com/czg86389-hub/muse2api"
+REPO_URL = "https://github.com/m38186884-del/muse2api"
 TRACKED_REPO_PATHS = [
     "app.py", "engine.py", "store.py", "cdp.py", "config.py",
     "admin.html", "README.md", "version.json", "requirements.txt",
@@ -2172,18 +2172,8 @@ def _git(args: list[str], timeout: int = 30):
 
 
 def _ensure_git_repo(token: str = ""):
-    """确保 BASE_DIR 已初始化为绑定 czg86389-hub/muse2api 的 Git 仓库。"""
-    git_dir = os.path.join(BASE_DIR, ".git")
-    remote_url = f"https://x-access-token:{token}@github.com/czg86389-hub/muse2api.git" if token else f"{REPO_URL}.git"
-    if not os.path.isdir(git_dir):
-        _git(["init", "-b", "main"])
-        _git(["remote", "add", "origin", remote_url])
-        _git(["fetch", "origin", "main"], timeout=45)
-        _git(["reset", "--mixed", "origin/main"])
-    else:
-        _git(["remote", "set-url", "origin", remote_url])
-    _git(["config", "user.name", "czg86389-hub"])
-    _git(["config", "user.email", "czg86389-hub@users.noreply.github.com"])
+    """[FORK 安全补丁] 已禁用：不再自动绑定/改写 git origin。"""
+    raise HTTPException(403, "该操作已在此 fork 中禁用。")
 
 
 def _check_update_sync(force: bool = False) -> dict:
@@ -2264,39 +2254,8 @@ async def admin_upgrade_now(payload: dict = Body(default={}), _=Depends(auth)):
 
 @app.post("/admin/repo/push")
 async def admin_repo_push(payload: dict = Body(default={}), _=Depends(auth)):
-    """维护者专用：将当前节点核心代码推送到 GitHub 仓库（自动过滤 .env 与 data 目录）。"""
-    msg = (payload.get("message") or "").strip() or f"chore: sync update ({time.strftime('%Y-%m-%d %H:%M:%S')})"
-    new_token = (payload.get("github_token") or "").strip()
-    if new_token:
-        _persist_env("GITHUB_TOKEN", new_token)
-        os.environ["GITHUB_TOKEN"] = new_token
-    token = new_token or _read_env_key("GITHUB_TOKEN")
-
-    def _do_push():
-        _ensure_git_repo(token)
-        existing_paths = [p for p in TRACKED_REPO_PATHS if os.path.exists(os.path.join(BASE_DIR, p))]
-        _git(["add", "--", *existing_paths])
-        st = _git(["status", "--porcelain", "--", *existing_paths])
-        committed = False
-        if st.stdout.strip():
-            c_res = _git(["commit", "-m", msg])
-            if c_res.returncode != 0:
-                raise HTTPException(500, f"Git commit 失败: {c_res.stderr or c_res.stdout}")
-            committed = True
-        p_res = _git(["push", "origin", "HEAD:main"], timeout=60)
-        if p_res.returncode != 0:
-            err = (p_res.stderr or p_res.stdout or "").strip()
-            raise HTTPException(500, f"Git push 失败: {err[:300]}")
-        _UPDATE_CACHE["ts"] = 0.0
-        status = _check_update_sync(force=True)
-        return {
-            "ok": True,
-            "committed": committed,
-            "message": "已成功提交并推送到 GitHub 仓库",
-            "status": status,
-        }
-
-    return await asyncio.to_thread(_do_push)
+    """[FORK 安全补丁] 已禁用：如需同步代码请手动 git push。"""
+    raise HTTPException(403, "该接口已在此 fork 中禁用。如需同步代码，请手动 git push。")
 
 
 @app.on_event("startup")
