@@ -2187,14 +2187,11 @@ def _ensure_git_repo(token: str = ""):
 
 
 def _check_update_sync(force: bool = False) -> dict:
-    """检测 GitHub 官方仓库 (czg86389-hub/muse2api) 是否有新版本或新提交。
-    默认缓存 90 秒，防止频繁刷新触发 GitHub API 速率限制。"""
+    """[FORK 安全补丁] 在线更新检测已永久禁用。
+    本 fork 不再向任何上游 GitHub 仓库发起版本检查请求，仅返回本地版本信息。
+    如需跟进上游更新，请人工 review 上游 diff 后手动合并。
+    """
     now = time.time()
-    if not force and _UPDATE_CACHE["data"] and (now - _UPDATE_CACHE["ts"]) < 90:
-        return _UPDATE_CACHE["data"]
-
-    import requests
-    token = _read_env_key("GITHUB_TOKEN")
     local_ver_obj = _read_local_version()
     local_version = str(local_ver_obj.get("version") or "1.5.0")
 
@@ -2220,89 +2217,23 @@ def _check_update_sync(force: bool = False) -> dict:
         except OSError:
             pass
 
-    remote_version = local_version
-    highlights = list(local_ver_obj.get("highlights") or [])
-    try:
-        rv = requests.get(
-            f"https://raw.githubusercontent.com/czg86389-hub/muse2api/main/version.json?t={int(now)}",
-            timeout=6,
-        )
-        if rv.status_code == 200:
-            rvj = rv.json()
-            if isinstance(rvj, dict):
-                remote_version = str(rvj.get("version") or remote_version)
-                if rvj.get("highlights"):
-                    highlights = list(rvj["highlights"])
-    except Exception:
-        pass
-
-    remote_sha, remote_msg, remote_time = "", "", ""
-    recent_commits = []
-    try:
-        headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "muse2api-updater"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        resp = requests.get(
-            "https://api.github.com/repos/czg86389-hub/muse2api/commits?sha=main&per_page=5",
-            headers=headers,
-            timeout=6,
-        )
-        if resp.status_code == 200 and isinstance(resp.json(), list):
-            commits = resp.json()
-            for idx, c in enumerate(commits):
-                sha7 = (c.get("sha") or "")[:7]
-                c_msg = ((c.get("commit") or {}).get("message") or "").splitlines()[0]
-                c_date = (((c.get("commit") or {}).get("committer") or {}).get("date") or "")
-                c_url = c.get("html_url") or f"{REPO_URL}/commit/{sha7}"
-                if idx == 0:
-                    remote_sha = sha7
-                    remote_msg = c_msg
-                    remote_time = c_date
-                recent_commits.append({
-                    "sha": sha7,
-                    "message": c_msg,
-                    "date": c_date,
-                    "url": c_url,
-                })
-    except Exception:
-        pass
-
-    # 若用户通过 Docker/ZIP 部署（无 .git）且首次运行版本一致，记录初始基准 SHA
-    if not local_sha and remote_sha and local_version == remote_version:
-        local_sha = remote_sha
-        try:
-            with open(_installed_sha_file(), "w", encoding="utf-8") as f:
-                f.write(remote_sha)
-        except OSError:
-            pass
-
-    def _parse_v(v: str) -> tuple[int, ...]:
-        try:
-            return tuple(int(x) for x in re.findall(r"\d+", v))
-        except Exception:
-            return (0,)
-
-    has_update = False
-    if remote_sha and local_sha:
-        has_update = (remote_sha != local_sha)
-    elif remote_version and local_version:
-        has_update = _parse_v(remote_version) > _parse_v(local_version)
-
     data = {
         "repo_url": REPO_URL,
         "has_git": has_git,
         "local_version": local_version,
-        "remote_version": remote_version,
+        "remote_version": local_version,
         "local_sha": local_sha,
         "local_msg": local_msg,
         "local_ts": local_ts,
-        "remote_sha": remote_sha,
-        "remote_msg": remote_msg,
-        "remote_time": remote_time,
-        "has_update": has_update,
-        "up_to_date": not has_update and bool(remote_sha or remote_version),
-        "highlights": highlights,
-        "recent_commits": recent_commits,
+        "remote_sha": "",
+        "remote_msg": "",
+        "remote_time": "",
+        "has_update": False,
+        "up_to_date": True,
+        "updater_disabled": True,
+        "updater_note": "一键在线升级已在此 fork 中永久禁用；如需更新请人工 review 上游 diff 后手动合并",
+        "highlights": list(local_ver_obj.get("highlights") or []),
+        "recent_commits": [],
         "checked_at": int(now),
     }
     _UPDATE_CACHE["ts"] = now
@@ -2310,67 +2241,11 @@ def _check_update_sync(force: bool = False) -> dict:
     return data
 
 
+
 def _upgrade_from_github_sync() -> dict:
-    """从 GitHub 拉取最新代码覆盖核心文件（兼容 Git 与无 Git 的 Docker/ZIP 环境），绝不触碰 .env 与 data/。"""
-    import requests
-    import tarfile
+    """[FORK 安全补丁] 已永久禁用：任何情况下都不再从上游 GitHub 拉取代码覆盖本地文件。"""
+    raise HTTPException(403, "一键在线升级已在此 fork 中永久禁用。如需更新，请人工 review 上游仓库 diff 后手动合并部署。")
 
-    token = _read_env_key("GITHUB_TOKEN")
-    upgraded_via = ""
-    try:
-        _ensure_git_repo(token)
-        f_res = _git(["fetch", "origin", "main"], timeout=45)
-        if f_res.returncode == 0:
-            _git(["checkout", "-f", "origin/main", "--", "."])
-            _git(["reset", "--mixed", "origin/main"])
-            upgraded_via = "git"
-    except Exception as e:
-        log.warning("Git 拉取更新失败，将使用 Tarball 方式更新: %s", e)
-
-    if not upgraded_via:
-        resp = requests.get(
-            "https://codeload.github.com/czg86389-hub/muse2api/tar.gz/refs/heads/main",
-            timeout=60,
-        )
-        if resp.status_code != 200:
-            raise HTTPException(502, f"下载 GitHub 更新包失败 (HTTP {resp.status_code})")
-        protected_files = {".env", "data/accounts.json", "data/tasks.json"}
-        with tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz") as tar:
-            for member in tar.getmembers():
-                parts = member.name.split("/", 1)
-                if len(parts) < 2 or not parts[1]:
-                    continue
-                rel = parts[1].replace("\\", "/")
-                if ".." in rel or rel in protected_files:
-                    continue
-                target_path = os.path.join(BASE_DIR, rel)
-                if member.isdir():
-                    os.makedirs(target_path, exist_ok=True)
-                elif member.isfile():
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    fobj = tar.extractfile(member)
-                    if fobj is not None:
-                        with open(target_path, "wb") as out_f:
-                            out_f.write(fobj.read())
-        upgraded_via = "tarball"
-
-    _UPDATE_CACHE["ts"] = 0.0
-    status = _check_update_sync(force=True)
-    if status.get("remote_sha"):
-        try:
-            with open(_installed_sha_file(), "w", encoding="utf-8") as f:
-                f.write(status["remote_sha"])
-            status["local_sha"] = status["remote_sha"]
-            status["has_update"] = False
-            status["up_to_date"] = True
-        except OSError:
-            pass
-    return {
-        "ok": True,
-        "via": upgraded_via,
-        "message": f"已成功更新至最新版本 {status.get('remote_version')} ({status.get('remote_sha')})",
-        "status": status,
-    }
 
 
 @app.get("/admin/update/check")
@@ -2383,19 +2258,8 @@ async def admin_check_update(force: bool = False):
 @app.post("/admin/update/upgrade")
 @app.post("/admin/repo/pull")
 async def admin_upgrade_now(payload: dict = Body(default={}), _=Depends(auth)):
-    """一键从 GitHub 官方仓库拉取最新更新并自动平滑重启服务。"""
-    res = await asyncio.to_thread(_upgrade_from_github_sync)
-    restart = payload.get("restart", True) if isinstance(payload, dict) else True
-    if restart:
-        def _delayed_restart():
-            time.sleep(0.5)
-            try:
-                engine.stop()
-            except Exception:
-                pass
-            os._exit(0)
-        threading.Thread(target=_delayed_restart, daemon=True).start()
-    return res
+    """[FORK 安全补丁] 一键在线升级已永久禁用。"""
+    raise HTTPException(403, "一键在线升级已在此 fork 中永久禁用。如需更新，请人工 review 上游仓库 diff 后手动合并部署。")
 
 
 @app.post("/admin/repo/push")
